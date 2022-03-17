@@ -10,16 +10,28 @@ import (
 	"golang.org/x/tools/imports"
 )
 
-const filename string = "examples/samber_lo.go"
-const dstPath string = "/Users/earlgray/Workspace/Intern/Mercari/goder/tmp/single_samber_lo.go"
+const (
+	filename  string = "examples/samber_lo.go"
+	dstPath   string = "/Users/earlgray/Workspace/Intern/Mercari/goder/tmp/single_samber_lo.go"
+	suffixLen int    = 8
+)
 
 func main() {
-	src, err := ReplaceExternalPkgs(filename)
+	srcBytes, err := os.ReadFile(filename)
+	if err != nil {
+		log.Fatal(err)
+	}
+	src, err := ReplaceExternalPkgs(srcBytes)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if err := createFileWithBytes(dstPath, src); err != nil {
+	src2, err := ConvertGenerics(src)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := createFileWithBytes(dstPath, src2); err != nil {
 		log.Fatal(err)
 	}
 }
