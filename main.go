@@ -39,7 +39,7 @@ func main() {
 	externPkgMap := map[string]string{}
 	for _, impt := range f.Imports {
 		pkgName := strings.Trim(impt.Path.Value, "\"")
-		hostname, rawPkgName := getHeadTail(strings.Split(pkgName, "/"))
+		hostname, rawPkgName := getFirstLast(strings.Split(pkgName, "/"))
 		if _, ok := externPkgHostSet[hostname]; !ok {
 			continue
 		}
@@ -134,6 +134,6 @@ func MakeSetFromSlice[T comparable](a []T) Set[T] {
 	return set
 }
 
-func getHeadTail[T any](a []T) (T, T) {
+func getFirstLast[T any](a []T) (T, T) {
 	return a[0], a[len(a)-1]
 }
