@@ -135,10 +135,10 @@ func getPkgAbsPath(gopath, pkgName string) (string, error) {
 	)
 }
 
-type Set[T comparable] map[T]struct{}
+type Set[K comparable] map[K]struct{}
 
-func MakeSetFromSlice[T comparable](a []T) Set[T] {
-	set := Set[T]{}
+func MakeSetFromSlice[K comparable](a []K) Set[K] {
+	set := Set[K]{}
 	for _, elem := range a {
 		set[elem] = struct{}{}
 	}
