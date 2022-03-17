@@ -7,12 +7,14 @@ import (
 	"go/build"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"github.com/samber/lo"
 	"golang.org/x/exp/maps"
 	"golang.org/x/tools/go/ast/astutil"
 )
@@ -125,4 +127,32 @@ func getPkgAbsPath(gopath, pkgName string) (string, error) {
   $ go get "%v"`,
 		pkgName, filepath.Join(gopath, "pkg/mod"), pkgName,
 	)
+}
+
+func appendExPkgFunc(dst *ast.File, exPkgCachePathes []string, pkgFuncsMap map[string][]string) error {
+	for _, exPkgPath := range exPkgCachePathes {
+		fset := token.NewFileSet()
+		pkgs, err := parser.ParseDir(fset, exPkgPath, func(fi fs.FileInfo) bool { return true }, 0)
+		if err != nil {
+			return err
+		}
+		for pkgName, pkg := range pkgs {
+			for fname, f := range pkg.Files {
+				for _, decl := range f.Decls {
+					funcDecl, _ := decl.(*ast.FuncDecl)
+					if funcDecl == nil {
+						continue
+					}
+					if !lo.Contains(pkgFuncsMap[pkgName], funcDecl.Name.Name) {
+						continue
+					}
+
+					dst.Decls = append(dst.Decls, funcDecl)
+					log.Printf("fname: %v -> func: %v\n", fname, funcDecl.Name)
+				}
+			}
+		}
+	}
+
+	return nil
 }
