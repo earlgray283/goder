@@ -24,9 +24,9 @@ var externPkgHostSet = map[string]struct{}{
 	"golang.org": {},
 }
 
-func ReplaceExternalPkgs(filename string) ([]byte, error) {
+func ReplaceExternalPkgs(src []byte) ([]byte, error) {
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, filename, nil, 0)
+	f, err := parser.ParseFile(fset, "", src, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -155,4 +155,8 @@ func appendExPkgFunc(dst *ast.File, exPkgCachePathes []string, pkgFuncsMap map[s
 	}
 
 	return nil
+}
+
+func getFirstLast[T any](a []T) (T, T) {
+	return a[0], a[len(a)-1]
 }
