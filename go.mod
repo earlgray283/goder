@@ -3,6 +3,7 @@ module github.com/earlgray283/goder
 go 1.18
 
 require (
+	github.com/samber/lo v1.10.1
 	golang.org/x/exp v0.0.0-20220314205449-43aec2f8a4e7
 	golang.org/x/tools v0.1.10
 )
