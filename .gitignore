@@ -2,3 +2,4 @@
 /tenntenn-example
 *.ast
 printast
+print_ast.go
