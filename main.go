@@ -35,9 +35,26 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// pkg -> local cache abs path
+	externPkgMap, err := makeExternPkgMap(f.Imports, externPkgHostSet)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	newSrc, err := deleteExPkgsAndFormat(f, fset, maps.Keys(externPkgMap)...)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := createFileWithBytes(dstPath, newSrc); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// pkg -> local cache abs path
+func makeExternPkgMap(imports []*ast.ImportSpec, externPkgHostSet Set[string]) (map[string]string, error) {
 	externPkgMap := map[string]string{}
-	for _, impt := range f.Imports {
+
+	for _, impt := range imports {
 		pkgName := strings.Trim(impt.Path.Value, "\"")
 		hostname, rawPkgName := getFirstLast(strings.Split(pkgName, "/"))
 		if _, ok := externPkgHostSet[hostname]; !ok {
@@ -47,18 +64,12 @@ func main() {
 		// 外部パッケージのローカルキャッシュのパスを見つける
 		pkgPath, err := getPkgAbsPath(build.Default.GOPATH, pkgName)
 		if err != nil {
-			log.Fatal(err)
+			return nil, err
 		}
 		externPkgMap[rawPkgName] = pkgPath
 	}
 
-	newSrc, err := deleteExPkgsAndFormat(f, fset, maps.Keys(externPkgMap)...)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if err := createFileWithBytes(dstPath, newSrc); err != nil {
-		log.Fatal(err)
-	}
+	return externPkgMap, nil
 }
 
 func createFileWithBytes(filename string, data []byte) error {
