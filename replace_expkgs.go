@@ -57,7 +57,7 @@ func ReplaceExternalPkgs(src []byte) ([]byte, error) {
 }
 
 // pkg -> local cache abs path
-func makePkgCacheMap(imports []*ast.ImportSpec, externPkgHostSet Set[string]) (map[string]string, error) {
+func makePkgCacheMap(imports []*ast.ImportSpec, externPkgHostSet set[string]) (map[string]string, error) {
 	externPkgMap := map[string]string{}
 
 	for _, impt := range imports {
@@ -82,7 +82,7 @@ func makePkgCacheMap(imports []*ast.ImportSpec, externPkgHostSet Set[string]) (m
 // return src, map[pkgName][]funcNames, error
 func deleteExPkgsAndFormat(f *ast.File, fset *token.FileSet, externPkgs ...string) ([]byte, map[string][]string, error) {
 	pkgFuncsMap := map[string][]string{}
-	externPkgSet := MakeSetFromSlice(externPkgs)
+	externPkgSet := makeSetFromSlice(externPkgs)
 	log.Println(externPkgs)
 	f2 := astutil.Apply(f, func(c *astutil.Cursor) bool {
 		n, _ := c.Node().(*ast.SelectorExpr)
@@ -159,4 +159,14 @@ func appendExPkgFunc(dst *ast.File, exPkgCachePathes []string, pkgFuncsMap map[s
 
 func getFirstLast[T any](a []T) (T, T) {
 	return a[0], a[len(a)-1]
+}
+
+type set[K comparable] map[K]struct{}
+
+func makeSetFromSlice[K comparable](a []K) set[K] {
+	set := set[K]{}
+	for _, elem := range a {
+		set[elem] = struct{}{}
+	}
+	return set
 }
