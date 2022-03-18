@@ -109,17 +109,21 @@ func getPkgAbsPath(gopath, pkgName string) (string, error) {
 	if !filepath.IsAbs(gopath) {
 		return "", errors.New("gopath must be absolute path")
 	}
-	pkgDir, pkgPattern := filepath.Split(pkgName)
-	dirPath := filepath.Join(gopath, "pkg", "mod", pkgDir)
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		return "", err
-	}
-	for _, entry := range entries {
-		if regexp.MustCompile(pkgPattern + "@.*").Match([]byte(entry.Name())) {
-			return filepath.Join(dirPath, entry.Name()), nil
+	dirs := strings.Split(pkgName, "/")
+	pkgPath := filepath.Join(gopath, "pkg", "mod")
+	for _, pkgPattern := range dirs {
+		entries, err := os.ReadDir(pkgPath)
+		if err != nil {
+			return "", err
 		}
+		for _, entry := range entries {
+			if regexp.MustCompile(pkgPattern + "@.+").Match([]byte(entry.Name())) {
+				return filepath.Join(pkgPath, entry.Name()), nil
+			}
+		}
+		pkgPath = pkgPath + "/" + pkgPattern
 	}
+
 	return "", fmt.Errorf(
 		`Package "%v" not found in "%v". Please run following command.
   $ go get "%v"`,
