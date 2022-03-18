@@ -48,9 +48,11 @@ func ConvertGenerics(src []byte) ([]byte, error) {
 
 				typeParamTypeMap := detectTypeParamTypes(info, callExpr, genericFuncDecl)
 
-				newFuncDecl := astcopy.FuncDecl(genericFuncDecl)   // funcDecl をコピーして新しい関数を作る
-				newFuncDecl.Name.Name += makeRandString(suffixLen) // 名前が重複しないように suffix にランダム文字列を追加
-				newFuncDecl.Type.TypeParams = nil                  // 型パラメーターを取る
+				newFuncDecl := astcopy.FuncDecl(genericFuncDecl) // funcDecl をコピーして新しい関数を作る
+				newFuncName := newFuncDecl.Name.Name + makeRandString(suffixLen)
+				ident.Name = newFuncName            // 呼び出し元の名前を変更
+				newFuncDecl.Name.Name = newFuncName // 名前が重複しないように suffix にランダム文字列を追加
+				newFuncDecl.Type.TypeParams = nil   // 型パラメーターを取る
 				ast.Inspect(newFuncDecl, func(n ast.Node) bool {
 					if ident, _ := n.(*ast.Ident); ident != nil {
 						if basicType, ok := typeParamTypeMap[ident.Name]; ok {
@@ -70,11 +72,18 @@ func ConvertGenerics(src []byte) ([]byte, error) {
 	}
 	f.Decls = append(f.Decls, newFuncDecls...)
 
+	// ジェネリック関数の削除
+	for i, decl := range f.Decls {
+		if funcDecl, _ := decl.(*ast.FuncDecl); funcDecl != nil {
+			if _, ok := genericsFuncs[funcDecl.Name.Name]; ok {
+				f.Decls = append(f.Decls[:i], f.Decls[i+1:]...)
+			}
+		}
+	}
+
 	return formatAst(f, fset)
 }
 
-// T->string
-// R->int みたいな
 func detectTypeParamTypes(
 	info *types.Info,
 	callExpr *ast.CallExpr,
