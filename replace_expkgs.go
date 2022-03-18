@@ -8,7 +8,6 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -136,7 +135,7 @@ func appendExPkgFunc(dst *ast.File, exPkgCachePathes []string, pkgFuncsMap map[s
 			return err
 		}
 		for pkgName, pkg := range pkgs {
-			for fname, f := range pkg.Files {
+			for _, f := range pkg.Files {
 				for _, decl := range f.Decls {
 					funcDecl, _ := decl.(*ast.FuncDecl)
 					if funcDecl == nil {
@@ -147,7 +146,7 @@ func appendExPkgFunc(dst *ast.File, exPkgCachePathes []string, pkgFuncsMap map[s
 					}
 
 					dst.Decls = append(dst.Decls, funcDecl)
-					log.Printf("fname: %v -> func: %v\n", fname, funcDecl.Name)
+					//log.Printf("fname: %v -> func: %v\n", fname, funcDecl.Name)
 				}
 			}
 		}
