@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"go/ast"
 	"go/importer"
 	"go/parser"
@@ -60,7 +59,6 @@ func ConvertGenerics(src []byte) ([]byte, error) {
 					}
 					return true
 				})
-				fmt.Println(typeParamTypeMap)
 				newFuncDecls = append(newFuncDecls, newFuncDecl)
 
 				return true

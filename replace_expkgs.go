@@ -24,7 +24,7 @@ var externPkgHostSet = map[string]struct{}{
 	"golang.org": {},
 }
 
-func ReplaceExternalPkgs(src []byte) ([]byte, error) {
+func ConvertExternalPkgs(src []byte) ([]byte, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "", src, 0)
 	if err != nil {
@@ -83,7 +83,6 @@ func makePkgCacheMap(imports []*ast.ImportSpec, externPkgHostSet set[string]) (m
 func deleteExPkgsAndFormat(f *ast.File, fset *token.FileSet, externPkgs ...string) ([]byte, map[string][]string, error) {
 	pkgFuncsMap := map[string][]string{}
 	externPkgSet := makeSetFromSlice(externPkgs)
-	log.Println(externPkgs)
 	f2 := astutil.Apply(f, func(c *astutil.Cursor) bool {
 		n, _ := c.Node().(*ast.SelectorExpr)
 		if n == nil {
