@@ -20,11 +20,7 @@ func ConvertGenerics(src []byte) ([]byte, error) {
 		return nil, err
 	}
 	config := &types.Config{Importer: importer.Default()}
-	info := &types.Info{
-		Uses:  make(map[*ast.Ident]types.Object),
-		Defs:  make(map[*ast.Ident]types.Object),
-		Types: make(map[ast.Expr]types.TypeAndValue),
-	}
+	info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue)}
 	if _, err := config.Check("main", fset, []*ast.File{f}, info); err != nil {
 		return nil, err
 	}
