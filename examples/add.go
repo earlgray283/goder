@@ -1,14 +1,15 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
 
-type Num interface {
-	~int | ~int8 | ~int16 | ~int32 | ~int64 |
-		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
-		~float32 | ~float64
-}
+	"golang.org/x/exp/constraints"
+)
 
-func add[T Num](a, b T) T {
+func add[T constraints.Integer](
+	a,
+	b T,
+) T {
 	return a + b
 }
 
