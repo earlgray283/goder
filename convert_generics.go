@@ -10,6 +10,7 @@ import (
 	"math/rand"
 
 	"github.com/go-toolsmith/astcopy"
+	"golang.org/x/exp/maps"
 )
 
 func ConvertGenerics(src []byte) ([]byte, error) {
@@ -19,7 +20,11 @@ func ConvertGenerics(src []byte) ([]byte, error) {
 		return nil, err
 	}
 	config := &types.Config{Importer: importer.Default()}
-	info := &types.Info{Uses: make(map[*ast.Ident]types.Object)}
+	info := &types.Info{
+		Uses:  make(map[*ast.Ident]types.Object),
+		Defs:  make(map[*ast.Ident]types.Object),
+		Types: make(map[ast.Expr]types.TypeAndValue),
+	}
 	if _, err := config.Check("main", fset, []*ast.File{f}, info); err != nil {
 		return nil, err
 	}
@@ -46,11 +51,20 @@ func ConvertGenerics(src []byte) ([]byte, error) {
 					return true
 				}
 
-				newFuncDecl, err2 := removeFuncTypeParams(info, callExpr, genericFuncDecl)
-				if err2 != nil {
-					err = err2
+				typeParamTypeMap := detectTypeParamTypes(info, callExpr, genericFuncDecl)
+
+				newFuncDecl := astcopy.FuncDecl(genericFuncDecl)   // funcDecl をコピーして新しい関数を作る
+				newFuncDecl.Name.Name += makeRandString(suffixLen) // 名前が重複しないように suffix にランダム文字列を追加
+				newFuncDecl.Type.TypeParams = nil                  // 型パラメーターを取る
+				ast.Inspect(newFuncDecl, func(n ast.Node) bool {
+					if ident, _ := n.(*ast.Ident); ident != nil {
+						if basicType, ok := typeParamTypeMap[ident.Name]; ok {
+							ident.Name = basicType
+						}
+					}
 					return true
-				}
+				})
+				fmt.Println(typeParamTypeMap)
 				newFuncDecls = append(newFuncDecls, newFuncDecl)
 
 				return true
@@ -65,34 +79,54 @@ func ConvertGenerics(src []byte) ([]byte, error) {
 	return formatAst(f, fset)
 }
 
-func removeFuncTypeParams(
+// T->string
+// R->int みたいな
+func detectTypeParamTypes(
 	info *types.Info,
 	callExpr *ast.CallExpr,
 	funcDecl *ast.FuncDecl,
-) (*ast.FuncDecl, error) {
-	typeParamTypeMap := map[string]types.Type{}
+) map[string]string {
+	typeParamTypeMap := map[string]string{}
+	// int: int になりがちなのでそれらの要素を取り除く
+	defer maps.DeleteFunc(typeParamTypeMap, func(k, v string) bool {
+		return k == v
+	})
 
-	newFuncDecl := astcopy.FuncDecl(funcDecl)
-	newFuncDecl.Name.Name += makeRandString(suffixLen)
-	newFuncDecl.Type.TypeParams = nil
-	//paramList := newFuncDecl.Type.Params.List
-	for _, arg := range callExpr.Args {
-		// 変数
-		if ident, _ := arg.(*ast.Ident); ident != nil {
-			o := info.Uses[ident]
-			if o == nil {
-				continue
+	index := 0
+	for _, arg := range funcDecl.Type.Params.List {
+		for range arg.Names {
+			funcDeclArg := arg.Type
+			callExprArg := callExpr.Args[index]
+
+			// 変数
+			if ident, _ := callExprArg.(*ast.Ident); ident != nil {
+				callExprType, funcDeclArgType := info.TypeOf(ident).String(), info.TypeOf(funcDeclArg).String()
+				prefix := commonPrefix(callExprType, funcDeclArgType)
+				typeParamTypeMap[funcDeclArgType[len(prefix):]] = callExprType[len(prefix):]
 			}
-			typeParamTypeMap[ident.Name] = o.Type()
-			fmt.Println(o.Type())
 
-		}
-		// 関数呼び出し
-		if callExpr, _ := arg.(*ast.CallExpr); callExpr != nil {
-			fmt.Println("unimplement!")
+			// 関数
+			if funcLit, _ := callExprArg.(*ast.FuncLit); funcLit != nil {
+				lambdaDeclType := funcDeclArg.(*ast.FuncType)
+				// 引数から調べる
+				for i2, arg2 := range lambdaDeclType.Params.List {
+					lambdaDeclArg := arg2.Type.(*ast.Ident)
+					funcLitArg := funcLit.Type.Params.List[i2].Type.(*ast.Ident)
+					typeParamTypeMap[lambdaDeclArg.Name] = funcLitArg.Name
+				}
+				// 戻り値から調べる
+				for i2, res2 := range lambdaDeclType.Results.List {
+					lambdaDeclRes := res2.Type.(*ast.Ident)
+					funcLitRes := funcLit.Type.Results.List[i2].Type.(*ast.Ident)
+					typeParamTypeMap[lambdaDeclRes.Name] = funcLitRes.Name
+				}
+			}
+
+			index++
 		}
 	}
-	return newFuncDecl, nil
+
+	return typeParamTypeMap
 }
 
 // find functions which use generics
@@ -124,4 +158,19 @@ func makeRandString(n int) string {
 		b[i] = smallLetters[rand.Intn(len(smallLetters))]
 	}
 	return string(b)
+}
+
+func commonPrefix(s, t string) string {
+	n := len(s)
+	if len(t) < n {
+		n = len(t)
+	}
+	common := make([]byte, 0, n)
+	for i := 0; i < n; i++ {
+		if s[i] != t[i] {
+			break
+		}
+		common = append(common, s[i])
+	}
+	return string(common)
 }
