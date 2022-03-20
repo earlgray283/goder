@@ -111,14 +111,15 @@ func getPkgAbsPath(gopath, pkgName string) (string, error) {
 	}
 	dirs := strings.Split(pkgName, "/")
 	pkgPath := filepath.Join(gopath, "pkg", "mod")
-	for _, pkgPattern := range dirs {
+	for i, pkgPattern := range dirs {
 		entries, err := os.ReadDir(pkgPath)
 		if err != nil {
 			return "", err
 		}
 		for _, entry := range entries {
 			if regexp.MustCompile(pkgPattern + "@.+").Match([]byte(entry.Name())) {
-				return filepath.Join(pkgPath, entry.Name()), nil
+				pkgDirPath := filepath.Join(pkgPath, entry.Name())
+				return filepath.Join(pkgDirPath, filepath.Join(dirs[i+1:]...)), nil
 			}
 		}
 		pkgPath = pkgPath + "/" + pkgPattern
