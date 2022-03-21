@@ -113,5 +113,6 @@ func formatAst(f any, fset *token.FileSet) ([]byte, error) {
 	if err := format.Node(buf, fset, f); err != nil {
 		return nil, err
 	}
+	//fmt.Println(buf.String())
 	return imports.Process("", buf.Bytes(), &imports.Options{})
 }
