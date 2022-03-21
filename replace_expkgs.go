@@ -27,36 +27,6 @@ func filterNoTest(f fs.FileInfo) bool {
 	return !filepath.HasPrefix(f.Name(), "_test.go")
 }
 
-func dfs(c *astutil.Cursor, target *ast.File, externPkgMap map[string]string, visited set[string]) (bool, error) {
-	selectorExpr, _ := c.Node().(*ast.SelectorExpr)
-	if selectorExpr == nil {
-		return true, nil
-	}
-	ident, _ := selectorExpr.X.(*ast.Ident)
-	if ident == nil {
-		return true, nil
-	}
-	cachePath, ok := externPkgMap[ident.Name]
-	if !ok {
-		return false, nil
-	}
-	nextPkgs, err := parser.ParseDir(token.NewFileSet(), cachePath, filterNoTest, 0)
-	if err != nil {
-		return false, err
-	}
-	for _, nextPkg := range nextPkgs {
-		if _, ok := visited[nextPkg.Name]; ok {
-			continue
-		}
-		visited[nextPkg.Name] = struct{}{}
-		if err := convertExternalPkgs(target, nextPkg, visited); err != nil {
-			return false, err
-		}
-	}
-	c.Replace(selectorExpr.Sel)
-	return false, nil
-}
-
 func appendDeclDepends(
 	target *ast.File,
 	orgDecl ast.Decl,
@@ -66,15 +36,34 @@ func appendDeclDepends(
 	var err error
 	decl := astcopy.Decl(orgDecl)
 	astutil.Apply(decl, func(c *astutil.Cursor) bool {
-		ok, err2 := dfs(c, target, externPkgMap, visited)
-		if err2 != nil {
-			err = err2
-			return false
+		if selectorExpr, _ := c.Node().(*ast.SelectorExpr); selectorExpr != nil {
+			if ident, _ := selectorExpr.X.(*ast.Ident); ident != nil {
+				if cachePath, ok := externPkgMap[ident.Name]; ok {
+					nextPkgs, err2 := parser.ParseDir(token.NewFileSet(), cachePath, filterNoTest, 0)
+					if err2 != nil {
+						err = err2
+						return false
+					}
+					for _, nextPkg := range nextPkgs {
+						if _, ok := visited[nextPkg.Name]; !ok {
+							visited[nextPkg.Name] = struct{}{}
+							if err2 := convertExternalPkgs(target, nextPkg, visited); err2 != nil {
+								err = err2
+								return false
+							}
+						}
+					}
+					c.Replace(selectorExpr.Sel)
+				}
+			}
 		}
-		return ok
+		return false
 	}, nil)
+	if err != nil {
+		return err
+	}
 	target.Decls = append(target.Decls, decl)
-	return err
+	return nil
 }
 
 func convertExternalPkgs(
@@ -96,12 +85,11 @@ func convertExternalPkgs(
 			}
 			// 構造体
 			if genDecl, _ := decl.(*ast.GenDecl); genDecl != nil {
-				if genDecl.Tok != token.IMPORT {
+				if genDecl.Tok == token.TYPE {
 					if err := appendDeclDepends(target, genDecl, externPkgMap, visited); err != nil {
 						return err
 					}
 				}
-
 			}
 		}
 	}
