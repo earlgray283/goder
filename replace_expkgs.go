@@ -46,8 +46,8 @@ func appendDeclDepends(
 						return false
 					}
 					for _, nextPkg := range nextPkgs {
-						if _, ok := visited[nextPkg.Name]; !ok {
-							visited[nextPkg.Name] = struct{}{}
+						if !visited.ContainsKey(nextPkg.Name) {
+							visited.Insert(nextPkg.Name)
 							if err2 := convertExternalPkgs(target, nextPkg, visited); err2 != nil {
 								err = err2
 								return false
@@ -58,7 +58,7 @@ func appendDeclDepends(
 				}
 			}
 		}
-		return false
+		return true
 	}, nil)
 	if err != nil {
 		return err
@@ -134,7 +134,7 @@ func makePkgCacheMap(imports []*ast.ImportSpec, externPkgHostSet kyopro.Set[stri
 	for _, impt := range imports {
 		pkgName := strings.Trim(impt.Path.Value, "\"")
 		hostname, rawPkgName := getFirstLast(strings.Split(pkgName, "/"))
-		if _, ok := externPkgHostSet[hostname]; !ok {
+		if !externPkgHostSet.ContainsKey(hostname) {
 			continue
 		}
 
@@ -168,7 +168,7 @@ func deleteExternalPkgs(f *ast.File, fset *token.FileSet, externPkgs ...string) 
 		if pkg == nil {
 			return true
 		}
-		if _, ok := externPkgSet[pkg.Name]; ok {
+		if externPkgSet.ContainsKey(pkg.Name) {
 			c.Replace(n.Sel)
 		}
 		return true
