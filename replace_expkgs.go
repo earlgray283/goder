@@ -13,14 +13,99 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/go-toolsmith/astcopy"
 	"github.com/samber/lo"
-	"golang.org/x/exp/maps"
 	"golang.org/x/tools/go/ast/astutil"
 )
 
 var externPkgHostSet = map[string]struct{}{
 	"github.com": {},
 	"golang.org": {},
+}
+
+func filterNoTest(f fs.FileInfo) bool {
+	return !filepath.HasPrefix(f.Name(), "_test.go")
+}
+
+func dfs(c *astutil.Cursor, target *ast.File, externPkgMap map[string]string, visited set[string]) (bool, error) {
+	selectorExpr, _ := c.Node().(*ast.SelectorExpr)
+	if selectorExpr == nil {
+		return true, nil
+	}
+	ident, _ := selectorExpr.X.(*ast.Ident)
+	if ident == nil {
+		return true, nil
+	}
+	cachePath, ok := externPkgMap[ident.Name]
+	if !ok {
+		return false, nil
+	}
+	nextPkgs, err := parser.ParseDir(token.NewFileSet(), cachePath, filterNoTest, 0)
+	if err != nil {
+		return false, err
+	}
+	for _, nextPkg := range nextPkgs {
+		if _, ok := visited[nextPkg.Name]; ok {
+			continue
+		}
+		visited[nextPkg.Name] = struct{}{}
+		if err := convertExternalPkgs(target, nextPkg, visited); err != nil {
+			return false, err
+		}
+	}
+	c.Replace(selectorExpr.Sel)
+	return false, nil
+}
+
+func appendDeclDepends(
+	target *ast.File,
+	orgDecl ast.Decl,
+	externPkgMap map[string]string,
+	visited set[string],
+) error {
+	var err error
+	decl := astcopy.Decl(orgDecl)
+	astutil.Apply(decl, func(c *astutil.Cursor) bool {
+		ok, err2 := dfs(c, target, externPkgMap, visited)
+		if err2 != nil {
+			err = err2
+			return false
+		}
+		return ok
+	}, nil)
+	target.Decls = append(target.Decls, decl)
+	return err
+}
+
+func convertExternalPkgs(
+	target *ast.File,
+	pkg *ast.Package,
+	visited set[string],
+) error {
+	for _, f := range pkg.Files {
+		externPkgMap, err := makePkgCacheMap(f.Imports, externPkgHostSet)
+		if err != nil {
+			return err
+		}
+		for _, decl := range f.Decls {
+			// 関数
+			if funcDecl, _ := decl.(*ast.FuncDecl); funcDecl != nil {
+				if err := appendDeclDepends(target, funcDecl, externPkgMap, visited); err != nil {
+					return err
+				}
+			}
+			// 構造体
+			if genDecl, _ := decl.(*ast.GenDecl); genDecl != nil {
+				if genDecl.Tok != token.IMPORT {
+					if err := appendDeclDepends(target, genDecl, externPkgMap, visited); err != nil {
+						return err
+					}
+				}
+
+			}
+		}
+	}
+	return nil
 }
 
 func ConvertExternalPkgs(src []byte) ([]byte, error) {
@@ -34,23 +119,19 @@ func ConvertExternalPkgs(src []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	exPkgs, exPkgCachePathes := maps.Keys(externPkgMap), maps.Values(externPkgMap)
-
-	/* 多分ループになる */
-	noExPkgSrc, pkgFuncsMap, err := deleteExPkgsAndFormat(f, fset, exPkgs...)
-	if err != nil {
-		return nil, err
+	visited := set[string]{}
+	for _, path := range externPkgMap {
+		pkgs, err := parser.ParseDir(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			return nil, err
+		}
+		for _, pkg := range pkgs {
+			visited[pkg.Name] = struct{}{}
+			if err := convertExternalPkgs(f, pkg, visited); err != nil {
+				return nil, err
+			}
+		}
 	}
-
-	f, err = parser.ParseFile(fset, "", noExPkgSrc, 0)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := appendExPkgFunc(f, exPkgCachePathes, pkgFuncsMap); err != nil {
-		return nil, err
-	}
-	/* ... */
 
 	return formatAst(f, fset)
 }
@@ -71,7 +152,13 @@ func makePkgCacheMap(imports []*ast.ImportSpec, externPkgHostSet set[string]) (m
 		if err != nil {
 			return nil, err
 		}
-		externPkgMap[rawPkgName] = pkgPath
+
+		// import で alias が貼ってあったらそれを使う
+		if impt.Name != nil {
+			externPkgMap[impt.Name.Name] = pkgPath
+		} else {
+			externPkgMap[rawPkgName] = pkgPath
+		}
 	}
 
 	return externPkgMap, nil
