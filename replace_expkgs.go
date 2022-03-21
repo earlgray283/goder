@@ -13,8 +13,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/earlgray283/astcopy"
 	"github.com/earlgray283/kyopro-go"
-	"github.com/go-toolsmith/astcopy"
 	"golang.org/x/exp/maps"
 	"golang.org/x/tools/go/ast/astutil"
 )

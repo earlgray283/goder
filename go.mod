@@ -3,9 +3,8 @@ module github.com/earlgray283/goder
 go 1.18
 
 require (
+	github.com/earlgray283/astcopy v1.0.1-0.20220321134322-d6e22ebe42b6
 	github.com/earlgray283/kyopro-go v0.0.0-20220321115003-1a3a06480a93
-	github.com/go-toolsmith/astcopy v1.0.0
-	github.com/samber/lo v1.10.1
 	golang.org/x/exp v0.0.0-20220317015231-48e79f11773a
 	golang.org/x/tools v0.1.10
 )
