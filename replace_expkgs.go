@@ -15,7 +15,7 @@ import (
 
 	"github.com/earlgray283/kyopro-go"
 	"github.com/go-toolsmith/astcopy"
-	"github.com/samber/lo"
+	"golang.org/x/exp/maps"
 	"golang.org/x/tools/go/ast/astutil"
 )
 
@@ -25,7 +25,7 @@ var externPkgHostSet = map[string]struct{}{
 }
 
 func filterNoTest(f fs.FileInfo) bool {
-	return !filepath.HasPrefix(f.Name(), "_test.go")
+	return !strings.HasSuffix(f.Name(), "_test.go")
 }
 
 func appendDeclDepends(
@@ -103,26 +103,28 @@ func ConvertExternalPkgs(src []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	externPkgMap, err := makePkgCacheMap(f.Imports, externPkgHostSet)
 	if err != nil {
 		return nil, err
 	}
+
+	f2 := deleteExternalPkgs(f, fset, maps.Keys(externPkgMap)...)
+
 	visited := kyopro.Set[string]{}
 	for _, path := range externPkgMap {
-		pkgs, err := parser.ParseDir(token.NewFileSet(), path, nil, 0)
+		pkgs, err := parser.ParseDir(token.NewFileSet(), path, filterNoTest, 0)
 		if err != nil {
 			return nil, err
 		}
 		for _, pkg := range pkgs {
 			visited[pkg.Name] = struct{}{}
-			if err := convertExternalPkgs(f, pkg, visited); err != nil {
+			if err := convertExternalPkgs(f2, pkg, visited); err != nil {
 				return nil, err
 			}
 		}
 	}
 
-	return formatAst(f, fset)
+	return formatAst(f2, fset)
 }
 
 // pkg -> local cache abs path
@@ -155,8 +157,7 @@ func makePkgCacheMap(imports []*ast.ImportSpec, externPkgHostSet kyopro.Set[stri
 
 // delete external packages in src
 // return src, map[pkgName][]funcNames, error
-func deleteExPkgsAndFormat(f *ast.File, fset *token.FileSet, externPkgs ...string) ([]byte, map[string][]string, error) {
-	pkgFuncsMap := map[string][]string{}
+func deleteExternalPkgs(f *ast.File, fset *token.FileSet, externPkgs ...string) *ast.File {
 	externPkgSet := kyopro.MakeSetFromSlice(externPkgs)
 	f2 := astutil.Apply(f, func(c *astutil.Cursor) bool {
 		n, _ := c.Node().(*ast.SelectorExpr)
@@ -168,15 +169,11 @@ func deleteExPkgsAndFormat(f *ast.File, fset *token.FileSet, externPkgs ...strin
 			return true
 		}
 		if _, ok := externPkgSet[pkg.Name]; ok {
-			pkgFuncsMap[pkg.Name] = append(pkgFuncsMap[pkg.Name], n.Sel.Name)
 			c.Replace(n.Sel)
 		}
 		return true
 	}, nil)
-
-	src, err := formatAst(f2, fset)
-
-	return src, pkgFuncsMap, err
+	return f2.(*ast.File)
 }
 
 // TODO: go.mod からバージョンをとれた方がいい(調べることが多そうなのでとりあえずはパターンマッチで・・)
@@ -206,34 +203,6 @@ func getPkgAbsPath(gopath, pkgName string) (string, error) {
   $ go get "%v"`,
 		pkgName, filepath.Join(gopath, "pkg/mod"), pkgName,
 	)
-}
-
-func appendExPkgFunc(dst *ast.File, exPkgCachePathes []string, pkgFuncsMap map[string][]string) error {
-	for _, exPkgPath := range exPkgCachePathes {
-		fset := token.NewFileSet()
-		pkgs, err := parser.ParseDir(fset, exPkgPath, func(fi fs.FileInfo) bool { return true }, 0)
-		if err != nil {
-			return err
-		}
-		for pkgName, pkg := range pkgs {
-			for _, f := range pkg.Files {
-				for _, decl := range f.Decls {
-					funcDecl, _ := decl.(*ast.FuncDecl)
-					if funcDecl == nil {
-						continue
-					}
-					if !lo.Contains(pkgFuncsMap[pkgName], funcDecl.Name.Name) {
-						continue
-					}
-
-					dst.Decls = append(dst.Decls, funcDecl)
-					//log.Printf("fname: %v -> func: %v\n", fname, funcDecl.Name)
-				}
-			}
-		}
-	}
-
-	return nil
 }
 
 func getFirstLast[T any](a []T) (T, T) {
