@@ -6,7 +6,7 @@ import (
 )
 
 func TestConvertExternalPkgs(t *testing.T) {
-	b, err := os.ReadFile("examples/ac-library-go_segtree.go")
+	b, err := os.ReadFile("_examples/ac-library-go_segtree.go")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -15,7 +15,7 @@ func TestConvertExternalPkgs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	f, err := os.Create("tmp/ac-library-go_segtree_goder.go")
+	f, err := os.Create("_tmp/ac-library-go_segtree_goder.go")
 	if err != nil {
 		t.Fatal(err)
 	}
