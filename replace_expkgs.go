@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/earlgray283/kyopro-go"
 	"github.com/go-toolsmith/astcopy"
 	"github.com/samber/lo"
 	"golang.org/x/tools/go/ast/astutil"
@@ -31,7 +32,7 @@ func appendDeclDepends(
 	target *ast.File,
 	orgDecl ast.Decl,
 	externPkgMap map[string]string,
-	visited set[string],
+	visited kyopro.Set[string],
 ) error {
 	var err error
 	decl := astcopy.Decl(orgDecl)
@@ -69,7 +70,7 @@ func appendDeclDepends(
 func convertExternalPkgs(
 	target *ast.File,
 	pkg *ast.Package,
-	visited set[string],
+	visited kyopro.Set[string],
 ) error {
 	for _, f := range pkg.Files {
 		externPkgMap, err := makePkgCacheMap(f.Imports, externPkgHostSet)
@@ -107,7 +108,7 @@ func ConvertExternalPkgs(src []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	visited := set[string]{}
+	visited := kyopro.Set[string]{}
 	for _, path := range externPkgMap {
 		pkgs, err := parser.ParseDir(token.NewFileSet(), path, nil, 0)
 		if err != nil {
@@ -125,7 +126,7 @@ func ConvertExternalPkgs(src []byte) ([]byte, error) {
 }
 
 // pkg -> local cache abs path
-func makePkgCacheMap(imports []*ast.ImportSpec, externPkgHostSet set[string]) (map[string]string, error) {
+func makePkgCacheMap(imports []*ast.ImportSpec, externPkgHostSet kyopro.Set[string]) (map[string]string, error) {
 	externPkgMap := map[string]string{}
 
 	for _, impt := range imports {
@@ -156,7 +157,7 @@ func makePkgCacheMap(imports []*ast.ImportSpec, externPkgHostSet set[string]) (m
 // return src, map[pkgName][]funcNames, error
 func deleteExPkgsAndFormat(f *ast.File, fset *token.FileSet, externPkgs ...string) ([]byte, map[string][]string, error) {
 	pkgFuncsMap := map[string][]string{}
-	externPkgSet := makeSetFromSlice(externPkgs)
+	externPkgSet := kyopro.MakeSetFromSlice(externPkgs)
 	f2 := astutil.Apply(f, func(c *astutil.Cursor) bool {
 		n, _ := c.Node().(*ast.SelectorExpr)
 		if n == nil {
@@ -237,14 +238,4 @@ func appendExPkgFunc(dst *ast.File, exPkgCachePathes []string, pkgFuncsMap map[s
 
 func getFirstLast[T any](a []T) (T, T) {
 	return a[0], a[len(a)-1]
-}
-
-type set[K comparable] map[K]struct{}
-
-func makeSetFromSlice[K comparable](a []K) set[K] {
-	set := set[K]{}
-	for _, elem := range a {
-		set[elem] = struct{}{}
-	}
-	return set
 }
