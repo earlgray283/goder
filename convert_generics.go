@@ -120,8 +120,14 @@ func detectTypeParamTypes(
 				// 戻り値から調べる
 				for i2, res2 := range lambdaDeclType.Results.List {
 					lambdaDeclRes := res2.Type.(*ast.Ident)
-					funcLitRes := funcLit.Type.Results.List[i2].Type.(*ast.Ident)
-					typeParamTypeMap[lambdaDeclRes.Name] = funcLitRes.Name
+					// T
+					if funcLitResIdent, _ := funcLit.Type.Results.List[i2].Type.(*ast.Ident); funcLitResIdent != nil {
+						typeParamTypeMap[lambdaDeclRes.Name] = funcLitResIdent.Name
+					}
+					// *T
+					if funcLitResStarExpr, _ := funcLit.Type.Results.List[i2].Type.(*ast.StarExpr); funcLitResStarExpr != nil {
+						typeParamTypeMap[lambdaDeclRes.Name] = "*" + funcLitResStarExpr.X.(*ast.Ident).Name
+					}
 				}
 			}
 
