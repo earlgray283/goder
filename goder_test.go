@@ -2,23 +2,45 @@ package main
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
-func TestConvertExternalPkgs(t *testing.T) {
-	b, err := os.ReadFile("_examples/ac-library-go_segtree.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	src, err := ConvertExternalPkgs(b)
-	if err != nil {
-		t.Fatal(err)
-	}
+const (
+	examplesDirName = "_examples"
+	outputDirName   = "_tmp"
+	goext           = ".go"
+)
 
-	f, err := os.Create("_tmp/ac-library-go_segtree_goder.go")
+func TestConvertExternalPkgs(t *testing.T) {
+	examplesDir, err := os.ReadDir(examplesDirName)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
-	f.Write(src)
+	for _, dirEntry := range examplesDir {
+		if !dirEntry.IsDir() {
+			if strings.HasSuffix(dirEntry.Name(), ".go") {
+				t.Log(dirEntry.Name())
+				b, err := os.ReadFile(filepath.Join(examplesDirName, dirEntry.Name()))
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				src, err := ConvertExternalPkgs(b)
+				if err != nil {
+					t.Log(err)
+					t.Fail()
+				}
+
+				convertedFilename := dirEntry.Name()[:len(dirEntry.Name())-len(goext)] + "_goder.go"
+				f, err := os.Create(filepath.Join(outputDirName, convertedFilename))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer f.Close()
+				f.Write(src)
+			}
+		}
+	}
 }
