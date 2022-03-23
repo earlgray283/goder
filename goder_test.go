@@ -10,6 +10,7 @@ import (
 const (
 	examplesDirName = "_examples"
 	outputDirName   = "_tmp"
+	outputExt       = "_goder.go"
 	goext           = ".go"
 )
 
@@ -33,7 +34,7 @@ func TestConvertExternalPkgs(t *testing.T) {
 					t.Fail()
 				}
 
-				convertedFilename := dirEntry.Name()[:len(dirEntry.Name())-len(goext)] + "_goder.go"
+				convertedFilename := dirEntry.Name()[:len(dirEntry.Name())-len(goext)] + outputExt
 				f, err := os.Create(filepath.Join(outputDirName, convertedFilename))
 				if err != nil {
 					t.Fatal(err)
