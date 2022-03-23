@@ -13,8 +13,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/earlgray283/astcopy"
 	"github.com/earlgray283/kyopro-go"
-	"github.com/go-toolsmith/astcopy"
 	"golang.org/x/exp/maps"
 	"golang.org/x/tools/go/ast/astutil"
 )
@@ -28,43 +28,64 @@ func filterNoTest(f fs.FileInfo) bool {
 	return !strings.HasSuffix(f.Name(), "_test.go")
 }
 
-func appendDeclDepends(
-	target *ast.File,
-	orgDecl ast.Decl,
-	externPkgMap map[string]string,
-	visited kyopro.Set[string],
-) error {
-	var err error
+func removeExTypeParams(funcDecl *ast.FuncDecl, externPkgSet kyopro.Set[string]) {
+	if funcDecl.Type.TypeParams != nil {
+		for _, field := range funcDecl.Type.TypeParams.List {
+			if binaryExpr, _ := field.Type.(*ast.BinaryExpr); binaryExpr != nil {
+				if selectorExpr, _ := binaryExpr.X.(*ast.SelectorExpr); selectorExpr != nil {
+					if ident, _ := selectorExpr.X.(*ast.Ident); ident != nil {
+						if !externPkgSet.ContainsKey(ident.Name) {
+							continue
+						}
+					}
+					binaryExpr.X = selectorExpr.Sel
+				}
+				if selectorExpr, _ := binaryExpr.Y.(*ast.SelectorExpr); selectorExpr != nil {
+					if ident, _ := selectorExpr.X.(*ast.Ident); ident != nil {
+						if !externPkgSet.ContainsKey(ident.Name) {
+							continue
+						}
+					}
+					binaryExpr.Y = selectorExpr.Sel
+				}
+			}
+			if selectorExpr, _ := field.Type.(*ast.SelectorExpr); selectorExpr != nil {
+				if ident, _ := selectorExpr.X.(*ast.Ident); ident != nil {
+					if !externPkgSet.ContainsKey(ident.Name) {
+						continue
+					}
+				}
+				field.Type = selectorExpr.Sel
+			}
+		}
+	}
+}
+
+func removeExPkgs(orgDecl ast.Decl, externPkgSet kyopro.Set[string]) ast.Decl {
 	decl := astcopy.Decl(orgDecl)
+	if funcDecl, _ := decl.(*ast.FuncDecl); funcDecl != nil {
+		removeExTypeParams(funcDecl, externPkgSet)
+	}
 	astutil.Apply(decl, func(c *astutil.Cursor) bool {
 		if selectorExpr, _ := c.Node().(*ast.SelectorExpr); selectorExpr != nil {
 			if ident, _ := selectorExpr.X.(*ast.Ident); ident != nil {
-				if cachePath, ok := externPkgMap[ident.Name]; ok {
-					nextPkgs, err2 := parser.ParseDir(token.NewFileSet(), cachePath, filterNoTest, 0)
-					if err2 != nil {
-						err = err2
-						return false
-					}
-					for _, nextPkg := range nextPkgs {
-						if !visited.ContainsKey(nextPkg.Name) {
-							visited.Insert(nextPkg.Name)
-							if err2 := convertExternalPkgs(target, nextPkg, visited); err2 != nil {
-								err = err2
-								return false
-							}
-						}
-					}
+				if externPkgSet.ContainsKey(ident.Name) {
 					c.Replace(selectorExpr.Sel)
 				}
 			}
 		}
 		return true
 	}, nil)
-	if err != nil {
-		return err
-	}
+	return decl
+}
+
+func removeExPkgsAndAppend(
+	target *ast.File,
+	orgDecl ast.Decl,
+	externPkgSet kyopro.Set[string],
+) {
+	decl := removeExPkgs(orgDecl, externPkgSet)
 	target.Decls = append(target.Decls, decl)
-	return nil
 }
 
 func convertExternalPkgs(
@@ -77,22 +98,34 @@ func convertExternalPkgs(
 		if err != nil {
 			return err
 		}
+		externPkgSet := kyopro.MakeSetFromSlice(maps.Keys(externPkgMap))
+
+		// 関数の中から外部パッケージの ident を削除して追加する
 		for _, decl := range f.Decls {
-			// 関数
-			if funcDecl, _ := decl.(*ast.FuncDecl); funcDecl != nil {
-				if err := appendDeclDepends(target, funcDecl, externPkgMap, visited); err != nil {
-					return err
+			if genDecl, _ := decl.(*ast.GenDecl); genDecl != nil {
+				if genDecl.Tok == token.IMPORT {
+					continue
 				}
 			}
-			// 構造体
-			if genDecl, _ := decl.(*ast.GenDecl); genDecl != nil {
-				if genDecl.Tok == token.TYPE {
-					if err := appendDeclDepends(target, genDecl, externPkgMap, visited); err != nil {
+			removeExPkgsAndAppend(target, decl, externPkgSet)
+		}
+
+		// 外部パッケージのキャッシュから追加
+		for _, cachePath := range externPkgMap {
+			nextPkgs, err := parser.ParseDir(token.NewFileSet(), cachePath, filterNoTest, 0)
+			if err != nil {
+				return err
+			}
+			for _, nextPkg := range nextPkgs {
+				if !visited.ContainsKey(nextPkg.Name) {
+					visited.Insert(nextPkg.Name)
+					if err := convertExternalPkgs(target, nextPkg, visited); err != nil {
 						return err
 					}
 				}
 			}
 		}
+
 	}
 	return nil
 }
@@ -107,8 +140,12 @@ func ConvertExternalPkgs(src []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	f2 := deleteExternalPkgs(f, fset, maps.Keys(externPkgMap)...)
+	exterPkgSet := kyopro.MakeSetFromSlice(maps.Keys(externPkgMap))
+	for i, decl := range f.Decls {
+		if funcDecl, _ := decl.(*ast.FuncDecl); funcDecl != nil {
+			f.Decls[i] = removeExPkgs(funcDecl, exterPkgSet).(*ast.FuncDecl)
+		}
+	}
 
 	visited := kyopro.Set[string]{}
 	for _, path := range externPkgMap {
@@ -117,14 +154,14 @@ func ConvertExternalPkgs(src []byte) ([]byte, error) {
 			return nil, err
 		}
 		for _, pkg := range pkgs {
-			visited[pkg.Name] = struct{}{}
-			if err := convertExternalPkgs(f2, pkg, visited); err != nil {
+			visited.Insert(pkg.Name)
+			if err := convertExternalPkgs(f, pkg, visited); err != nil {
 				return nil, err
 			}
 		}
 	}
 
-	return formatAst(f2, fset)
+	return formatAst(f, fset)
 }
 
 // pkg -> local cache abs path
@@ -153,27 +190,6 @@ func makePkgCacheMap(imports []*ast.ImportSpec, externPkgHostSet kyopro.Set[stri
 	}
 
 	return externPkgMap, nil
-}
-
-// delete external packages in src
-// return src, map[pkgName][]funcNames, error
-func deleteExternalPkgs(f *ast.File, fset *token.FileSet, externPkgs ...string) *ast.File {
-	externPkgSet := kyopro.MakeSetFromSlice(externPkgs)
-	f2 := astutil.Apply(f, func(c *astutil.Cursor) bool {
-		n, _ := c.Node().(*ast.SelectorExpr)
-		if n == nil {
-			return true
-		}
-		pkg, _ := n.X.(*ast.Ident)
-		if pkg == nil {
-			return true
-		}
-		if externPkgSet.ContainsKey(pkg.Name) {
-			c.Replace(n.Sel)
-		}
-		return true
-	}, nil)
-	return f2.(*ast.File)
 }
 
 // TODO: go.mod からバージョンをとれた方がいい(調べることが多そうなのでとりあえずはパターンマッチで・・)
