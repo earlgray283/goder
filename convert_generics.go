@@ -10,6 +10,7 @@ import (
 
 	"github.com/earlgray283/astcopy"
 	"golang.org/x/exp/maps"
+	"golang.org/x/tools/go/ast/astutil"
 )
 
 func ConvertGenerics(src []byte) ([]byte, error) {
@@ -25,7 +26,8 @@ func ConvertGenerics(src []byte) ([]byte, error) {
 	}
 
 	genericsFuncs := findGenericsFuncs(f.Decls)
-	newFuncDecls := make([]ast.Decl, 0)
+	genericsStructs := findGenericsStructs(f.Decls)
+	newDecls := make([]ast.Decl, 0)
 	for _, decl := range f.Decls {
 		funcDecl, _ := decl.(*ast.FuncDecl)
 		if funcDecl == nil {
@@ -48,38 +50,120 @@ func ConvertGenerics(src []byte) ([]byte, error) {
 
 				typeParamTypeMap := detectTypeParamTypes(info, callExpr, genericFuncDecl)
 
-				newFuncDecl := astcopy.FuncDecl(genericFuncDecl) // funcDecl をコピーして新しい関数を作る
-				newFuncName := newFuncDecl.Name.Name + makeRandString(suffixLen)
-				ident.Name = newFuncName            // 呼び出し元の名前を変更
-				newFuncDecl.Name.Name = newFuncName // 名前が重複しないように suffix にランダム文字列を追加
-				newFuncDecl.Type.TypeParams = nil   // 型パラメーターを取る
-				ast.Inspect(newFuncDecl, func(n ast.Node) bool {
-					if ident, _ := n.(*ast.Ident); ident != nil {
+				newFuncName := genericFuncDecl.Name.Name + makeRandString(suffixLen)
+				ident.Name = newFuncName
+				newFuncDecl := astcopy.FuncDecl(genericFuncDecl)
+				newFuncDecl.Name.Name = newFuncName
+				newFuncDecl.Type.TypeParams = nil
+
+				// 型パラメータを基本型に変換
+				astutil.Apply(newFuncDecl, func(c *astutil.Cursor) bool {
+					if ident, _ := c.Node().(*ast.Ident); ident != nil {
 						if basicType, ok := typeParamTypeMap[ident.Name]; ok {
 							ident.Name = basicType
 						}
 					}
+					if indexExpr, _ := c.Node().(*ast.IndexExpr); indexExpr != nil {
+						c.Replace(indexExpr.X)
+					}
 					return true
-				})
-				newFuncDecls = append(newFuncDecls, newFuncDecl)
+				}, nil)
+
+				if newFuncDecl.Recv != nil {
+					for _, field := range newFuncDecl.Recv.List {
+						starExpr := field.Type.(*ast.StarExpr)
+						if indexExpr, _ := starExpr.X.(*ast.IndexExpr); indexExpr != nil {
+							if basicType, ok := typeParamTypeMap[indexExpr.Index.(*ast.Ident).Name]; ok {
+								ident.Name = basicType
+							}
+						}
+					}
+				}
+
+				newDecls = append(newDecls, newFuncDecl)
+
+				// 引数や戻り値の構造体の型パラメータを基本型に変換
+				for _, res := range newFuncDecl.Type.Results.List {
+					ast.Inspect(res.Type, func(n ast.Node) bool {
+						if ident, _ := n.(*ast.Ident); ident != nil {
+							if ident.Obj != nil {
+								orgTypeSpec, _ := ident.Obj.Decl.(*ast.TypeSpec)
+								if orgTypeSpec == nil {
+									return true
+								}
+								if orgGenDecl, ok := genericsStructs[orgTypeSpec.Name.Name]; ok {
+									genDecl := astcopy.GenDecl(orgGenDecl)
+									typeSpec := astcopy.TypeSpec(orgTypeSpec)
+									typeSpec.Name.Name += makeRandString(8)
+									typeSpec.TypeParams = nil
+									if structType, _ := typeSpec.Type.(*ast.StructType); structType != nil {
+										for _, tp := range structType.Fields.List {
+											ast.Inspect(tp, func(n2 ast.Node) bool {
+												if funcType, _ := n2.(*ast.FuncType); funcType != nil {
+													for _, field := range funcType.Params.List {
+														if ident2, _ := field.Type.(*ast.Ident); ident2 != nil {
+															if basicType, ok := typeParamTypeMap[ident2.Name]; ok {
+																ident2.Name = basicType
+															}
+														}
+													}
+												}
+												if ident2, _ := n2.(*ast.Ident); ident2 != nil {
+													if basicType, ok := typeParamTypeMap[ident2.Name]; ok {
+														ident2.Name = basicType
+													}
+												}
+												return true
+											})
+										}
+									}
+									genDecl.Specs[0] = typeSpec
+									newDecls = append(newDecls, genDecl)
+									return true
+								}
+								return true
+							}
+						}
+						return true
+					})
+				}
 
 				return true
 			})
-			if err != nil {
-				return nil, err
-			}
 		}
 	}
-	f.Decls = append(f.Decls, newFuncDecls...)
+	f.Decls = append(f.Decls, newDecls...)
 
-	// ジェネリック関数の削除
-	for i, decl := range f.Decls {
+	// ジェネリックな関数や構造体の削除
+	noGenericDecls := make([]ast.Decl, 0)
+	for _, decl := range f.Decls {
 		if funcDecl, _ := decl.(*ast.FuncDecl); funcDecl != nil {
-			if _, ok := genericsFuncs[funcDecl.Name.Name]; ok {
-				f.Decls = append(f.Decls[:i], f.Decls[i+1:]...)
+			if funcDecl.Type.TypeParams != nil {
+				continue
 			}
 		}
+		// if genDecl, _ := decl.(*ast.GenDecl); genDecl != nil {
+		// 	for _, spec := range genDecl.Specs {
+		// 		typeSpec, _ := spec.(*ast.TypeSpec)
+		// 		if typeSpec == nil {
+		// 			continue
+		// 		}
+		// 		structType, _ := typeSpec.Type.(*ast.StructType)
+		// 		if structType == nil {
+		// 			continue
+		// 		}
+		// 		for _, field := range structType.Fields.List {
+		// 			for _, ident := range field.Names {
+		// 				if
+		// 			}
+		// 		}
+
+		// 		typeSpec.TypeParams = nil
+		// 	}
+		// }
+		noGenericDecls = append(noGenericDecls, decl)
 	}
+	f.Decls = noGenericDecls
 
 	return formatAst(f, fset)
 }
@@ -90,23 +174,11 @@ func detectTypeParamTypes(
 	funcDecl *ast.FuncDecl,
 ) map[string]string {
 	typeParamTypeMap := map[string]string{}
-	// int: int になりがちなのでそれらの要素を取り除く
-	defer maps.DeleteFunc(typeParamTypeMap, func(k, v string) bool {
-		return k == v
-	})
-
 	index := 0
 	for _, arg := range funcDecl.Type.Params.List {
 		for range arg.Names {
 			funcDeclArg := arg.Type
 			callExprArg := callExpr.Args[index]
-
-			// 変数
-			if ident, _ := callExprArg.(*ast.Ident); ident != nil {
-				callExprType, funcDeclArgType := info.TypeOf(ident).String(), info.TypeOf(funcDeclArg).String()
-				prefix := commonPrefix(callExprType, funcDeclArgType)
-				typeParamTypeMap[funcDeclArgType[len(prefix):]] = callExprType[len(prefix):]
-			}
 
 			// 関数
 			if funcLit, _ := callExprArg.(*ast.FuncLit); funcLit != nil {
@@ -129,11 +201,23 @@ func detectTypeParamTypes(
 						typeParamTypeMap[lambdaDeclRes.Name] = "*" + funcLitResStarExpr.X.(*ast.Ident).Name
 					}
 				}
+				index++
+				continue
+			}
+
+			// 変数や expr
+			typ := info.TypeOf(callExprArg).String()
+			if ident, _ := funcDeclArg.(*ast.Ident); ident != nil {
+				typeParamTypeMap[ident.Name] = typ
 			}
 
 			index++
 		}
 	}
+
+	maps.DeleteFunc(typeParamTypeMap, func(k, v string) bool {
+		return k == v
+	})
 
 	return typeParamTypeMap
 }
@@ -142,16 +226,45 @@ func detectTypeParamTypes(
 func findGenericsFuncs(decls []ast.Decl) map[string]*ast.FuncDecl {
 	genericsFuncs := map[string]*ast.FuncDecl{}
 	for _, decl := range decls {
-		funcDecl, _ := decl.(*ast.FuncDecl)
-		if funcDecl == nil {
-			continue
+		if funcDecl, _ := decl.(*ast.FuncDecl); funcDecl != nil {
+			if funcDecl.Type.TypeParams != nil {
+				genericsFuncs[funcDecl.Name.Name] = funcDecl
+			}
+			if funcDecl.Recv != nil {
+				for _, field := range funcDecl.Recv.List {
+					flg := false
+					ast.Inspect(field, func(n ast.Node) bool {
+						if indexExpr, _ := n.(*ast.IndexExpr); indexExpr != nil {
+							flg = true
+							return false
+						}
+						return true
+					})
+					if flg {
+						genericsFuncs[funcDecl.Name.Name] = funcDecl
+					}
+				}
+			}
 		}
-		if funcDecl.Type.TypeParams == nil {
-			continue
-		}
-		genericsFuncs[funcDecl.Name.Name] = funcDecl
 	}
 	return genericsFuncs
+}
+
+// find structs which use generics
+func findGenericsStructs(decls []ast.Decl) map[string]*ast.GenDecl {
+	genericsStructs := map[string]*ast.GenDecl{}
+	for _, decl := range decls {
+		if genDecl, _ := decl.(*ast.GenDecl); genDecl != nil {
+			for _, spec := range genDecl.Specs {
+				if typeSpec, _ := spec.(*ast.TypeSpec); typeSpec != nil {
+					if typeSpec.TypeParams != nil {
+						genericsStructs[typeSpec.Name.Name] = genDecl
+					}
+				}
+			}
+		}
+	}
+	return genericsStructs
 }
 
 // note: start of a sentence is big letter
