@@ -1,7 +1,9 @@
 package main
 
 import (
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -22,8 +24,9 @@ func TestConvertExternalPkgs(t *testing.T) {
 	for _, dirEntry := range examplesDir {
 		if !dirEntry.IsDir() {
 			if strings.HasSuffix(dirEntry.Name(), ".go") {
-				t.Log(dirEntry.Name())
-				b, err := os.ReadFile(filepath.Join(examplesDirName, dirEntry.Name()))
+				examplesFilepath := filepath.Join(examplesDirName, dirEntry.Name())
+				t.Log(examplesFilepath)
+				b, err := os.ReadFile(examplesFilepath)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -34,14 +37,26 @@ func TestConvertExternalPkgs(t *testing.T) {
 					t.Fail()
 				}
 
-				convertedFilename := dirEntry.Name()[:len(dirEntry.Name())-len(goext)] + outputExt
-				f, err := os.Create(filepath.Join(outputDirName, convertedFilename))
+				convertedFilepath := filepath.Join(outputDirName, dirEntry.Name()[:len(dirEntry.Name())-len(goext)]+outputExt)
+				f, err := os.Create(convertedFilepath)
 				if err != nil {
-					t.Fatal(err)
+					t.Log(err)
+					t.Fail()
 				}
-				defer f.Close()
 				f.Write(src)
+				f.Close()
+
+				if err := checkCompile(convertedFilepath); err != nil {
+					t.Log(err)
+					t.Fail()
+				}
 			}
 		}
 	}
+}
+
+func checkCompile(p string) error {
+	cmd := exec.Command("go", "run", p)
+	cmd.Stdout = io.Discard
+	return cmd.Run()
 }
