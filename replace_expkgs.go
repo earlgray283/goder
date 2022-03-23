@@ -154,7 +154,7 @@ func ConvertExternalPkgs(src []byte) ([]byte, error) {
 			return nil, err
 		}
 		for _, pkg := range pkgs {
-			visited[pkg.Name] = struct{}{}
+			visited.Insert(pkg.Name)
 			if err := convertExternalPkgs(f, pkg, visited); err != nil {
 				return nil, err
 			}
