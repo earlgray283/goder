@@ -8,7 +8,7 @@ import (
 	"go/types"
 	"math/rand"
 
-	"github.com/earlgray283/astcopy"
+	"github.com/go-toolsmith/astcopy"
 	"golang.org/x/exp/maps"
 )
 
